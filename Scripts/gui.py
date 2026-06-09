@@ -1,4 +1,7 @@
 from PySide6.QtWidgets import QWidget, QApplication, QVBoxLayout, QLabel, QPushButton
+import sounddevice as sd
+from scipy.io import wavfile
+import numpy as np
 import sys
 
 class MainWindow(QWidget):

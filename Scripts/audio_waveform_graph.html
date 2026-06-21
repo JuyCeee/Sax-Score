@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Audio Waveform & Harmonic Analyzer</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: #121212;
+            color: #ffffff;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            padding: 10px;
+            box-sizing: border-box;
+            overflow: hidden;
+        }
+        .chart-container {
+            width: 100%;
+            max-width: 900px;
+            background-color: #1e1e1e;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 8px 16px rgba(0,0,0,0.5);
+            box-sizing: border-box;
+            position: relative;
+        }
+        .header-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+        h2 {
+            margin: 0;
+            color: #4db8ff;
+            font-size: 1.3rem;
+        }
+        /* Tab Controls Styling */
+        .tabs {
+            display: flex;
+            background-color: #151515;
+            border-radius: 8px;
+            padding: 4px;
+            border: 1px solid #2d2d2d;
+        }
+        .tab-btn {
+            background: none;
+            border: none;
+            color: #888888;
+            padding: 6px 16px;
+            font-size: 12px;
+            font-weight: bold;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+        .tab-btn:hover {
+            color: #ffffff;
+        }
+        .tab-btn.active {
+            background-color: #2a2a2a;
+            color: #4db8ff;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        }
+        canvas {
+            display: block;
+            width: 100%;
+            height: 400px;
+            background-color: #151515;
+            border-radius: 8px;
+            cursor: crosshair;
+        }
+        .tooltip {
+            position: absolute;
+            background: rgba(30, 30, 30, 0.95);
+            border: 1px solid #4db8ff;
+            color: #fff;
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-size: 12px;
+            pointer-events: none;
+            display: none;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+            z-index: 10;
+        }
+        .legend {
+            display: flex;
+            gap: 15px;
+            font-size: 11px;
+            color: #888888;
+            margin-top: 10px;
+            justify-content: center;
+        }
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        .legend-color {
+            width: 12px;
+            height: 12px;
+            border-radius: 3px;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="chart-container" id="container">
+        <div class="header-row">
+            <h2 id="graphTitle">Saxophone Analyzer (Waiting for Data...)</h2>
+            <div class="tabs">
+                <button class="tab-btn active" id="tabTime" onclick="switchTab('time')">📈 Waveform (Time)</button>
+                <button class="tab-btn" id="tabFreq" onclick="switchTab('freq')">📊 Spectrum (FFT / Harmonics)</button>
+            </div>
+        </div>
+        
+        <canvas id="waveformCanvas"></canvas>
+        <div id="tooltip" class="tooltip"></div>
+        
+        <div class="legend" id="graphLegend">
+            <!-- Dynamic content inserted by JS -->
+        </div>
+    </div>
+
+    <script>
+        // Datasets
+        let waveData = [];
+        let fftFreqs = [];
+        let fftAmps = [];
+        let activeTab = 'time'; // 'time' or 'freq'
+        let noteNameDisplay = "Waiting for data...";
+
+        const canvas = document.getElementById('waveformCanvas');
+        const ctx = canvas.getContext('2d');
+        const tooltip = document.getElementById('tooltip');
+        const container = document.getElementById('container');
+        const graphTitle = document.getElementById('graphTitle');
+        const legendContainer = document.getElementById('graphLegend');
+
+        // Python Bridge function
+        window.updateWaveform = function(wave, freqs = [], amps = [], noteName = "Saxophone Note") {
+            waveData = wave;
+            fftFreqs = freqs;
+            fftAmps = amps;
+            noteNameDisplay = noteName;
+            
+            updateHeader();
+            resizeCanvas();
+        }
+
+        function switchTab(tab) {
+            activeTab = tab;
+            document.getElementById('tabTime').classList.toggle('active', tab === 'time');
+            document.getElementById('tabFreq').classList.toggle('active', tab === 'freq');
+            
+            updateHeader();
+            drawChart();
+        }
+
+        function updateHeader() {
+            if (waveData.length === 0) {
+                graphTitle.textContent = "Saxophone Analyzer (Waiting for Data...)";
+                return;
+            }
+            if (activeTab === 'time') {
+                graphTitle.textContent = `Waveform: ${noteNameDisplay}`;
+            } else {
+                graphTitle.textContent = `Harmonic Profile: ${noteNameDisplay}`;
+            }
+        }
+
+        function resizeCanvas() {
+            const rect = canvas.getBoundingClientRect();
+            canvas.width = rect.width * window.devicePixelRatio;
+            canvas.height = rect.height * window.devicePixelRatio;
+            ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+            drawChart();
+        }
+
+        const padding = { top: 30, right: 30, bottom: 45, left: 55 };
+        let points = [];
+        let activeIndex = -1;
+
+        function drawChart() {
+            const w = canvas.width / window.devicePixelRatio;
+            const h = canvas.height / window.devicePixelRatio;
+            
+            ctx.clearRect(0, 0, w, h);
+
+            if (waveData.length === 0) {
+                ctx.strokeStyle = '#333333';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.moveTo(padding.left, h / 2);
+                ctx.lineTo(w - padding.right, h / 2);
+                ctx.stroke();
+                legendContainer.innerHTML = '';
+                return;
+            }
+
+            const chartWidth = w - padding.left - padding.right;
+            const chartHeight = h - padding.top - padding.bottom;
+
+            if (activeTab === 'time') {
+                // --- TIME DOMAIN: WAVEFORM RENDERING ---
+                legendContainer.innerHTML = `
+                    <div class="legend-item"><div class="legend-color" style="background: #4db8ff;"></div>Raw Waveform (Air Pressure)</div>
+                `;
+
+                const dataMin = Math.min(...waveData);
+                const dataMax = Math.max(...waveData);
+                const paddingValue = Math.max(10, (dataMax - dataMin) * 0.1);
+                const yMin = dataMin - paddingValue;
+                const yMax = dataMax + paddingValue;
+                const yRange = yMax - yMin || 1;
+
+                // Axes & Grid
+                drawGrid(w, h, chartWidth, chartHeight, yMin, yMax, yRange, 'Time (Array Index)', 'Amplitude');
+
+                // Map Waveform Points
+                points = waveData.map((val, idx) => {
+                    const x = padding.left + (idx / (waveData.length - 1)) * chartWidth;
+                    const y = padding.top + (1 - (val - yMin) / yRange) * chartHeight;
+                    return { x, y, val, label: `Sample: ${idx + 1}`, displayVal: val };
+                });
+
+                // Gradient Fill Under Wave
+                const gradient = ctx.createLinearGradient(0, padding.top, 0, padding.top + chartHeight);
+                gradient.addColorStop(0, 'rgba(77, 184, 255, 0.2)');
+                gradient.addColorStop(1, 'rgba(77, 184, 255, 0.0)');
+                ctx.fillStyle = gradient;
+                ctx.beginPath();
+                ctx.moveTo(points[0].x, padding.top + chartHeight);
+                points.forEach(p => ctx.lineTo(p.x, p.y));
+                ctx.lineTo(points[points.length - 1].x, padding.top + chartHeight);
+                ctx.closePath();
+                ctx.fill();
+
+                // Draw Waveform Line
+                ctx.strokeStyle = '#4db8ff';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.moveTo(points[0].x, points[0].y);
+                for (let i = 1; i < points.length; i++) {
+                    ctx.lineTo(points[i].x, points[i].y);
+                }
+                ctx.stroke();
+
+            } else {
+                // --- FREQUENCY DOMAIN: FFT SPECTRUM & HARMONIC OVERLAY ---
+                legendContainer.innerHTML = `
+                    <div class="legend-item"><div class="legend-color" style="background: #ffb84d;"></div>Frequency Peaks</div>
+                    <div class="legend-item" style="border-left: 1px dashed #ff4d4d; padding-left: 10px;">Harmonic Target (f, 2f, 3f, 4f)</div>
+                `;
+
+                if (fftFreqs.length === 0) {
+                    ctx.fillStyle = '#888888';
+                    ctx.font = '14px sans-serif';
+                    ctx.textAlign = 'center';
+                    ctx.fillText('No Frequency Data Available. Load a real audio file.', w/2, h/2);
+                    return;
+                }
+
+                const yMin = 0;
+                const yMax = Math.max(...fftAmps) * 1.1 || 100;
+                const yRange = yMax - yMin;
+
+                // Draw Grid
+                drawGrid(w, h, chartWidth, chartHeight, yMin, yMax, yRange, 'Frequency (Hz)', 'Magnitude (Volume)');
+
+                // Map FFT points
+                points = fftAmps.map((val, idx) => {
+                    const freq = fftFreqs[idx];
+                    const x = padding.left + (idx / (fftFreqs.length - 1)) * chartWidth;
+                    const y = padding.top + (1 - (val - yMin) / yRange) * chartHeight;
+                    return { x, y, val, label: `Freq: ${Math.round(freq)} Hz`, displayVal: Math.round(val) };
+                });
+
+                // Fill FFT Graph
+                const gradient = ctx.createLinearGradient(0, padding.top, 0, padding.top + chartHeight);
+                gradient.addColorStop(0, 'rgba(255, 184, 77, 0.25)');
+                gradient.addColorStop(1, 'rgba(255, 184, 77, 0.0)');
+                ctx.fillStyle = gradient;
+                ctx.beginPath();
+                ctx.moveTo(points[0].x, padding.top + chartHeight);
+                points.forEach(p => ctx.lineTo(p.x, p.y));
+                ctx.lineTo(points[points.length - 1].x, padding.top + chartHeight);
+                ctx.closePath();
+                ctx.fill();
+
+                // Draw FFT Spectrum Line
+                ctx.strokeStyle = '#ffb84d';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.moveTo(points[0].x, points[0].y);
+                for (let i = 1; i < points.length; i++) {
+                    ctx.lineTo(points[i].x, points[i].y);
+                }
+                ctx.stroke();
+
+                // --- SMART PEAK & HARMONIC CORRELATION ---
+                // Find Fundamental Frequency Peak (f)
+                let maxAmpIdx = 0;
+                // Skip DC offset noise near index 0
+                for (let i = 3; i < fftAmps.length; i++) {
+                    if (fftAmps[i] > fftAmps[maxAmpIdx]) {
+                        maxAmpIdx = i;
+                    }
+                }
+                const fundamentalF = fftFreqs[maxAmpIdx];
+
+                if (fundamentalF > 30) { // Only draw if we have a real detected pitch
+                    const maxFreq = fftFreqs[fftFreqs.length - 1];
+                    const harmonics = [
+                        { multiplier: 1, label: 'f (Fund)' },
+                        { multiplier: 2, label: '2f' },
+                        { multiplier: 3, label: '3f' },
+                        { multiplier: 4, label: '4f' }
+                    ];
+
+                    harmonics.forEach(harmonic => {
+                        const targetHz = fundamentalF * harmonic.multiplier;
+                        if (targetHz <= maxFreq) {
+                            // Map frequency target back to horizontal pixel coordinate
+                            const ratio = targetHz / maxFreq;
+                            const hX = padding.left + ratio * chartWidth;
+
+                            // Draw Vertical Harmonic Guideline
+                            ctx.strokeStyle = 'rgba(255, 77, 77, 0.65)';
+                            ctx.lineWidth = 1.5;
+                            ctx.setLineDash([4, 4]);
+                            ctx.beginPath();
+                            ctx.moveTo(hX, padding.top);
+                            ctx.lineTo(hX, padding.top + chartHeight);
+                            ctx.stroke();
+                            ctx.setLineDash([]); // Reset dashed state
+
+                            // Label the Guideline
+                            ctx.fillStyle = '#ff4d4d';
+                            ctx.font = 'bold 9px sans-serif';
+                            ctx.textAlign = 'center';
+                            ctx.fillText(harmonic.label, hX, padding.top - 10);
+                            ctx.fillText(`${Math.round(targetHz)}Hz`, hX, padding.top - 2);
+                        }
+                    });
+                }
+            }
+
+            // Draw Shared Hover Tracking Marker
+            if (activeIndex !== -1 && activeIndex < points.length) {
+                const p = points[activeIndex];
+                ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                ctx.moveTo(p.x, padding.top);
+                ctx.lineTo(p.x, padding.top + chartHeight);
+                ctx.stroke();
+
+                ctx.fillStyle = activeTab === 'time' ? '#4db8ff' : '#ffb84d';
+                ctx.strokeStyle = '#1e1e1e';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, 6, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.stroke();
+            }
+        }
+
+        // Shared background grid rendering method
+        function drawGrid(w, h, chartWidth, chartHeight, yMin, yMax, yRange, xLabel, yLabel) {
+            ctx.strokeStyle = '#2d2d2d';
+            ctx.lineWidth = 1;
+            ctx.font = '10px sans-serif';
+            ctx.fillStyle = '#888888';
+            ctx.textAlign = 'right';
+            ctx.textBaseline = 'middle';
+
+            // Horizontal Lines
+            const gridLinesCount = 5;
+            for (let i = 0; i <= gridLinesCount; i++) {
+                const ratio = i / gridLinesCount;
+                const yVal = yMax - ratio * yRange;
+                const yPos = padding.top + ratio * chartHeight;
+
+                ctx.beginPath();
+                ctx.moveTo(padding.left, yPos);
+                ctx.lineTo(w - padding.right, yPos);
+                ctx.stroke();
+
+                ctx.fillText(Math.round(yVal), padding.left - 10, yPos);
+            }
+
+            // X-Axis Axis Label
+            ctx.fillStyle = '#aaaaaa';
+            ctx.textAlign = 'center';
+            ctx.font = '11px sans-serif';
+            ctx.fillText(xLabel, padding.left + chartWidth / 2, h - padding.bottom + 25);
+            
+            // Y-Axis Label Rotated
+            ctx.save();
+            ctx.translate(15, padding.top + chartHeight / 2);
+            ctx.rotate(-Math.PI / 2);
+            ctx.fillText(yLabel, 0, 0);
+            ctx.restore();
+        }
+
+        // Interactive Tooltip tracking
+        canvas.addEventListener('mousemove', (e) => {
+            if (waveData.length === 0) return;
+            const rect = canvas.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left;
+            const relativeX = mouseX - padding.left;
+            const chartWidth = rect.width - padding.left - padding.right;
+
+            if (relativeX >= 0 && relativeX <= chartWidth) {
+                const totalPoints = activeTab === 'time' ? waveData.length : fftFreqs.length;
+                const percent = relativeX / chartWidth;
+                activeIndex = Math.round(percent * (totalPoints - 1));
+
+                if (activeIndex >= 0 && activeIndex < totalPoints) {
+                    const p = points[activeIndex];
+                    
+                    tooltip.style.display = 'block';
+                    tooltip.innerHTML = `<strong>${p.label}</strong><br><strong>Value:</strong> ${p.displayVal}`;
+                    tooltip.style.left = `${p.x + 10}px`;
+                    tooltip.style.top = `${p.y - 45}px`;
+
+                    drawChart();
+                    return;
+                }
+            }
+            hideTooltip();
+        });
+
+        canvas.addEventListener('mouseleave', hideTooltip);
+
+        function hideTooltip() {
+            activeIndex = -1;
+            tooltip.style.display = 'none';
+            drawChart();
+        }
+
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+    </script>
+</body>
+</html>

@@ -53,6 +53,9 @@ class MainWindow(QMainWindow):
         # 3. Calculate the average safely using float64 to prevent overflow
         avg = np.mean(positive_values, dtype=np.float64)
 
+        frequencies = np.fft.rfftfreq(len(audio_data), d=1/sample_rate)
+        amplitudes = np.abs(np.fft.rfft(audio_data))
+
         sampled_data = audio_data[100000:100500].tolist() #D
         #sampled_data = audio_data[30000:31000:1].tolist() #G
         json_array = json.dumps(sampled_data)

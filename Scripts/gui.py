@@ -37,7 +37,9 @@ class MainWindow(QMainWindow):
         button.clicked.connect(self.analyze_audio)
 
     def analyze_audio(self):
-        audio_file = "S:\VSC\Sax-Score\Recordings\D Sax.wav"
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        project_root = os.path.dirname(current_dir)
+        audio_file = os.path.join(project_root, "Recordings", "D Sax.wav")
         sample_rate, audio_data = wavfile.read(audio_file)
 
         if len(audio_data.shape) > 1:

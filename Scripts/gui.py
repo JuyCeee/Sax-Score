@@ -7,13 +7,14 @@ from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtCore import QUrl
 import sounddevice as sd
 from scipy.io import wavfile
+from scipy.signal import find_peaks
 import numpy as np
 
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Sax Score")
-        self.setGeometry(100, 100, 970, 540)
+        self.setGeometry(100, 100, 970, 600)
 
         layout = QVBoxLayout()
         label = QLabel("Welcome to Sax Score!")
@@ -93,39 +94,76 @@ class MainWindow(QMainWindow):
         # Calculate the average safely using float64 to prevent overflow
         avg = np.mean(positive_values, dtype=np.float64)
 
-        frequencies = np.fft.rfftfreq(len(audio_data), d=1/sample_rate)
-        amplitudes = np.abs(np.fft.rfft(audio_data))
+        # frequencies = np.fft.rfftfreq(len(audio_data), d=1/sample_rate)
+        # amplitudes = np.abs(np.fft.rfft(audio_data))
 
-        mask = frequencies <= 2000
-        vis_freqs = frequencies[mask]
-        vis_amps = amplitudes[mask]
+        # mask = (frequencies >= 50) & (frequencies <= 2000)
+        # vis_freqs = frequencies[mask]
+        # vis_amps = amplitudes[mask]
 
-        step = 1
-        freqs_list = vis_freqs[::step].tolist()
-        amps_list = vis_amps[::step].tolist()
+        # step = 1
+        # freqs_list = vis_freqs[::step].tolist()
+        # amps_list = vis_amps[::step].tolist()
+        samples_per_segment = int(4096 * sample_rate / 48000)
 
-        sampled_data = audio_data[100000:100500].tolist() #D
-        #sampled_data = audio_data[30000:31000:1].tolist() #G
+        for i in range(0, len(audio_data), samples_per_segment):
+            audio_sliced = audio_data[i:i+samples_per_segment]
+            if len(audio_sliced) < 512:
+                continue
+
+            frequencies = np.fft.rfftfreq(len(audio_sliced), d=1/sample_rate)
+            amplitudes = np.abs(np.fft.rfft(audio_sliced))
+
+            mask = (frequencies >= 50) & (frequencies <= 2000)
+            vis_freqs = frequencies[mask]
+            vis_amps = amplitudes[mask]
+
+            step = 1
+            freqs_list = vis_freqs[::step].tolist()
+            amps_list = vis_amps[::step].tolist()
+
+            sampled_data = audio_sliced.tolist() #D
+            # sampled_data = audio_data[30000:31000:1].tolist() #G
+            # sampled_data = audio_data[150000:151000:1].tolist() #hG
+            self.analyze_segment(sampled_data, freqs_list, amps_list, sample_rate, alto_frequencies, alto_pitches, audio_data, avg, positive_values, max)
+
+    # For optimization: look at input/output, what could be moved where, whats only needed for prints, etc.
+    def analyze_segment(self, sampled_data, freqs_list, amps_list, sample_rate, alto_frequencies, alto_pitches, audio_data, avg, positive_values, max):
         json_array = json.dumps(sampled_data)
+
+        min_volume = np.max(amps_list) * 0.15
 
         freqs_json = json.dumps(freqs_list)
         amps_json = json.dumps(amps_list)
 
-        js_code = f"updateWaveform({json_array}, {freqs_json}, {amps_json}, 'Low D on Saxophone')"
+        js_code = f"updateWaveform({json_array}, {freqs_json}, {amps_json})"
         self.browser.page().runJavaScript(js_code)
 
         # Find the closest frequency to the target frequency
-        target = freqs_list[np.argmax(amps_list)]
+        freqs_list_arr = np.array(freqs_list)
+        amps_list_arr = np.array(amps_list)
+        #distance might be too big, still giving multiple values for same peek, doesnt matter for now js keep in mind
+        peak_indices, _ = find_peaks(amps_list, height=min_volume, distance=5) 
+        isolated_peak_freqs = freqs_list_arr[peak_indices]
+        isolated_peak_amps = amps_list_arr[peak_indices]
+
+        # target = freqs_list[np.argmax(amps_list)]
+        if len(peak_indices) > 0:
+            target = isolated_peak_freqs[0]
+        else:
+            print(0)
+            return(0)
+        #print(isolated_peak_freqs)
         idx = np.abs(alto_frequencies - target).argmin()
 
 
-        print(f"Sample Rate: {sample_rate} Hz")
-        print(f"Total numbers: {len(audio_data)}")
-        print(f"Max value: {max}")
-        print(f"Average value: {avg}")
-        print(f"Number of positive values: {len(positive_values)}")
-        print(f"Frequency: {target} Hz")
-        print(f"Closest matching frequency: {alto_frequencies[idx]} Hz")
+        # print(f"Sample Rate: {sample_rate} Hz")
+        # print(f"Total numbers: {len(audio_data)}")
+        # print(f"Max value: {max}")
+        # print(f"Average value: {avg}")
+        # print(f"Number of positive values: {len(positive_values)}")
+        # print(f"Frequency: {target} Hz")
+        # print(f"Closest matching frequency: {alto_frequencies[idx]} Hz")
         print(f"Corresponding pitch: {alto_pitches[alto_frequencies[idx]]}")
 
 

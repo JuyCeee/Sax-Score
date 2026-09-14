@@ -40,7 +40,7 @@ class MainWindow(QMainWindow):
     def analyze_audio(self):
         current_dir = os.path.dirname(os.path.abspath(__file__))
         project_root = os.path.dirname(current_dir)
-        audio_file = os.path.join(project_root, "Recordings", "D Sax.wav")
+        audio_file = os.path.join(project_root, "Recordings", "hG Sax.wav")
         sample_rate, audio_data = wavfile.read(audio_file)
 
         alto_pitches = {
@@ -85,8 +85,8 @@ class MainWindow(QMainWindow):
                 audio_data = audio_data[:, 0]
         
         # Get min and max instantly
-        min = np.min(audio_data)
-        max = np.max(audio_data)
+        min_val = np.min(audio_data)
+        max_val = np.max(audio_data)
 
         # Filter out only the positive numbers
         positive_values = audio_data[audio_data > 4000]
@@ -104,17 +104,26 @@ class MainWindow(QMainWindow):
         # step = 1
         # freqs_list = vis_freqs[::step].tolist()
         # amps_list = vis_amps[::step].tolist()
-        samples_per_segment = int(4096 * sample_rate / 48000)
+        samples_per_segment = int(2048 * sample_rate / 48000) # Tweak this number if analasys is too inaccurate
+
+        volume_threshold = 1000
 
         for i in range(0, len(audio_data), samples_per_segment):
             audio_sliced = audio_data[i:i+samples_per_segment]
             if len(audio_sliced) < 512:
                 continue
 
+            volume = np.sqrt(np.mean(audio_sliced.astype(np.float64)**2))
+            if volume < volume_threshold:
+                print(0)
+                continue
+
+            # print(volume)
+
             frequencies = np.fft.rfftfreq(len(audio_sliced), d=1/sample_rate)
             amplitudes = np.abs(np.fft.rfft(audio_sliced))
 
-            mask = (frequencies >= 50) & (frequencies <= 2000)
+            mask = (frequencies >= 50) & (frequencies <= 10000)
             vis_freqs = frequencies[mask]
             vis_amps = amplitudes[mask]
 
@@ -125,10 +134,10 @@ class MainWindow(QMainWindow):
             sampled_data = audio_sliced.tolist() #D
             # sampled_data = audio_data[30000:31000:1].tolist() #G
             # sampled_data = audio_data[150000:151000:1].tolist() #hG
-            self.analyze_segment(sampled_data, freqs_list, amps_list, sample_rate, alto_frequencies, alto_pitches, audio_data, avg, positive_values, max)
+            self.analyze_segment(sampled_data, freqs_list, amps_list, sample_rate, alto_frequencies, alto_pitches, audio_data, avg, positive_values, max_val)
 
     # For optimization: look at input/output, what could be moved where, whats only needed for prints, etc.
-    def analyze_segment(self, sampled_data, freqs_list, amps_list, sample_rate, alto_frequencies, alto_pitches, audio_data, avg, positive_values, max):
+    def analyze_segment(self, sampled_data, freqs_list, amps_list, sample_rate, alto_frequencies, alto_pitches, audio_data, avg, positive_values, max_val):
         json_array = json.dumps(sampled_data)
 
         min_volume = np.max(amps_list) * 0.15
@@ -150,6 +159,8 @@ class MainWindow(QMainWindow):
         # target = freqs_list[np.argmax(amps_list)]
         if len(peak_indices) > 0:
             target = isolated_peak_freqs[0]
+            # print(isolated_peak_freqs)
+            #print(peak_indices)
         else:
             print(0)
             return(0)
@@ -159,7 +170,7 @@ class MainWindow(QMainWindow):
 
         # print(f"Sample Rate: {sample_rate} Hz")
         # print(f"Total numbers: {len(audio_data)}")
-        # print(f"Max value: {max}")
+        # print(f"Max value: {max_val}")
         # print(f"Average value: {avg}")
         # print(f"Number of positive values: {len(positive_values)}")
         # print(f"Frequency: {target} Hz")

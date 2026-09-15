@@ -96,15 +96,19 @@ class MainWindow(QMainWindow):
         # Calculate the average safely using float64 to prevent overflow
         avg = np.mean(positive_values, dtype=np.float64)
 
-        amplitudes = np.abs(np.fft.rfft(audio_data))
+        frequencies_t = np.fft.rfftfreq(len(audio_data), d=1/sample_rate)
+        amplitudes_t = np.abs(np.fft.rfft(audio_data))
 
-        mask = (frequencies >= 50) & (frequencies <= 2000)
-        vis_freqs = frequencies[mask]
-        vis_amps = amplitudes[mask]
+        mask = (frequencies_t >= 50) & (frequencies_t <= 2000)
+        vis_freqs_t = frequencies_t[mask]
+        vis_amps_t = amplitudes_t[mask]
 
-        step = 1
-        freqs_list = vis_freqs[::step].tolist()
-        amps_list = vis_amps[::step].tolist()
+        step_t = 500
+
+        sampled_data_t = audio_data[::step_t].tolist()
+
+        freqs_list_t = vis_freqs_t[::step_t].tolist()
+        amps_list_t = vis_amps_t[::step_t].tolist()
 
         samples_per_segment = int(4096 * sample_rate / 48000) # Tweak this number if analasys is too inaccurate
 
@@ -112,13 +116,27 @@ class MainWindow(QMainWindow):
 
         pitches_detected = []
 
-        json_array = json.dumps(audio_data.tolist())
+        json_array = json.dumps(sampled_data_t)
 
-        freqs_json = json.dumps(freqs_list)
-        amps_json = json.dumps(amps_list)
+        freqs_json = json.dumps(freqs_list_t)
+        amps_json = json.dumps(amps_list_t)
 
         js_code = f"updateWaveform({json_array}, {freqs_json}, {amps_json})"
         self.browser.page().runJavaScript(js_code)
+
+        peak_indices_volume, properties = find_peaks(audio_data, height=volume_threshold, distance=4096)
+        peak_widths_temp = properties["widths"]
+        peak_width_list = peak_widths_temp.astype(int).tolist()
+
+        for i in range(len(peak_indices_volume)):
+            if peak_width_volume[i] < 5000:
+                peak_indices_volume.pop(i)
+                peak_width_volume.pop(i)
+
+        print("Peak indices for volume:", peak_indices_volume)
+        print("Peak widths for volume:", peak_width_list)
+        # peak_indices_volume_adjusted = [x // samples_per_segment for x in peak_indices_volume]
+        # print("Peak indices for volume (adjusted):", peak_indices_volume_adjusted)
 
         for i in range(0, len(audio_data), samples_per_segment):
             audio_sliced = audio_data[i:i+samples_per_segment]

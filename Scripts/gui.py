@@ -124,19 +124,37 @@ class MainWindow(QMainWindow):
         js_code = f"updateWaveform({json_array}, {freqs_json}, {amps_json})"
         self.browser.page().runJavaScript(js_code)
 
-        peak_indices_volume, properties = find_peaks(audio_data, height=volume_threshold, distance=4096)
-        peak_widths_temp = properties["widths"]
-        peak_width_list = peak_widths_temp.astype(int).tolist()
+        # peak_indeces_amps, _ = find_peaks(audio_data, height=volume_threshold, distance=1)
+        # peak_amps = audio_data[peak_indeces_amps]
+        # peak_indices_volume, properties = find_peaks(peak_amps, height=volume_threshold, distance=1, prominence=3000)
+        # peak_volume = peak_indeces_amps[peak_indices_volume]
+        # # peak_volume_widths = properties['widths']
+        # peak_volume_l_threshold = properties['prominences']
 
-        for i in range(len(peak_indices_volume)):
-            if peak_width_volume[i] < 5000:
-                peak_indices_volume.pop(i)
-                peak_width_volume.pop(i)
+        # peak_volume_list = peak_volume.tolist()
+        # # peak_volume_widths_list = peak_volume_widths.tolist()
+        # peak_volume_l_threshold_list = peak_volume_l_threshold.tolist()
 
-        print("Peak indices for volume:", peak_indices_volume)
-        print("Peak widths for volume:", peak_width_list)
-        # peak_indices_volume_adjusted = [x // samples_per_segment for x in peak_indices_volume]
-        # print("Peak indices for volume (adjusted):", peak_indices_volume_adjusted)
+        # # print("Peak amps:", peak_amps)
+        # print("Peak volume:", peak_volume_list)
+        # print("Peak volume widths:", peak_volume_l_threshold_list)
+        # print("Length of peak volume list:", len(peak_volume_list))
+        # # peak_indices_volume_adjusted = [x // samples_per_segment for x in peak_indices_volume]
+        # # print("Peak indices for volume (adjusted):", peak_indices_volume_adjusted)
+
+        rectified_audio = np.abs(audio_data.astype(np.float64))
+
+        window_size = 1000
+        window = np.ones(window_size) / window_size
+        envelope = np.convolve(rectified_audio, window, mode='same')
+
+        dynamic_prominence = np.max(envelope) * 0.05
+
+        peak_volume, _ = find_peaks(envelope, height=volume_threshold, distance=5000, prominence=dynamic_prominence)
+        peak_volume_list = peak_volume.tolist()
+
+        print("Peak volume:", peak_volume_list)
+        print("Peak volume count:", len(peak_volume_list))
 
         for i in range(0, len(audio_data), samples_per_segment):
             audio_sliced = audio_data[i:i+samples_per_segment]
@@ -169,10 +187,10 @@ class MainWindow(QMainWindow):
 
         # print("Detected pitches:", pitches_detected)
         # print("Length of detected pitches:", len(pitches_detected))
-        structured_pitches, structured_lengths = self.structure_data(pitches_detected)
+        structured_pitches, structured_lengths = self.structure_data(pitches_detected, samples_per_segment, peak_volume_list)
         print("Structured pitches:", structured_pitches)
         print("Structured lengths:", structured_lengths)
-        print(len(structured_pitches))
+        # print(len(structured_pitches))
 
 
     # For optimization: look at input/output, what could be moved where, whats only needed for prints, etc.
@@ -217,28 +235,40 @@ class MainWindow(QMainWindow):
         # print(f"Corresponding pitch: {alto_pitches[alto_frequencies[idx]]}")
         return(alto_pitches[alto_frequencies[idx]])
 
-    def structure_data(self, data):
+    def structure_data(self, data, starting_index, segmentation):
 
-        active_pitch = "placeholder"
+        active_pitch = None
         pitches = []
         lengths = []
 
+        j = 0
+        segmentation = segmentation + [float('inf')]
+
         # Iterate through the data and group consecutive identical pitches
-        for i in range(len(data)):
-            if active_pitch == data[i]:
-                lengths[len(lengths) - 1] += 1
+        for i, pitch in enumerate(data):
+
+            new_note_crossed = False
+            while starting_index * i >= segmentation[j]:
+                new_note_crossed = True
+                j += 1
+
+            if active_pitch == pitch and not new_note_crossed:
+                if len(lengths) > 0:
+                    lengths[-1] += 1
             else:
-                active_pitch = data[i]
+                active_pitch = pitch
                 pitches.append(active_pitch)
                 lengths.append(1)
 
+        # print("J:",j)
+
         # Remove leading and trailing silences from the pitches and lengths lists
-        if pitches[0] == 0:
+        if pitches[0] == 0 and len(pitches) > 0:
             pitches.pop(0)
             lengths.pop(0)
-        if pitches[len(pitches) - 1] == 0:
-            pitches.pop(len(pitches) - 1)
-            lengths.pop(len(lengths) - 1)
+        if pitches[len(pitches) - 1] == 0 and len(pitches) > 0:
+            pitches.pop()
+            lengths.pop()
 
         return pitches, lengths
 

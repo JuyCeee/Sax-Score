@@ -42,7 +42,6 @@
             color: #4db8ff;
             font-size: 1.3rem;
         }
-        /* Tab Controls Styling */
         .tabs {
             display: flex;
             background-color: #151515;
@@ -116,37 +115,38 @@
         <div class="header-row">
             <h2 id="graphTitle">Saxophone Analyzer (Waiting for Data...)</h2>
             <div class="tabs">
-                <button class="tab-btn active" id="tabTime" onclick="switchTab('time')">📈 Waveform (Time)</button>
-                <button class="tab-btn" id="tabFreq" onclick="switchTab('freq')">📊 Spectrum (FFT / Harmonics)</button>
+                <button class="tab-btn active" id="tabTime" onclick="switchTab('time')">📈 Raw Waveform</button>
+                <button class="tab-btn" id="tabEnv" onclick="switchTab('env')">🌊 Smoothed Envelope</button>
+                <button class="tab-btn" id="tabFreq" onclick="switchTab('freq')">📊 FFT Spectrum</button>
             </div>
         </div>
         
         <canvas id="waveformCanvas"></canvas>
         <div id="tooltip" class="tooltip"></div>
         
-        <div class="legend" id="graphLegend">
-            <!-- Dynamic content inserted by JS -->
-        </div>
+        <div class="legend" id="graphLegend"></div>
     </div>
 
     <script>
-        // Datasets
         let waveData = [];
+        let envelopeData = [];
+        let attackIndices = [];
         let fftFreqs = [];
         let fftAmps = [];
-        let activeTab = 'time'; // 'time' or 'freq'
+        let activeTab = 'time'; 
         let noteNameDisplay = "Waiting for data...";
 
         const canvas = document.getElementById('waveformCanvas');
         const ctx = canvas.getContext('2d');
         const tooltip = document.getElementById('tooltip');
-        const container = document.getElementById('container');
         const graphTitle = document.getElementById('graphTitle');
         const legendContainer = document.getElementById('graphLegend');
 
-        // Python Bridge function
-        window.updateWaveform = function(wave, freqs = [], amps = [], noteName = "Saxophone Note") {
+        // NEW 5-VARIABLE PYTHON BRIDGE
+        window.updateWaveform = function(wave, envelope = [], attacks = [], freqs = [], amps = [], noteName = "Saxophone Note") {
             waveData = wave;
+            envelopeData = envelope;
+            attackIndices = attacks;
             fftFreqs = freqs;
             fftAmps = amps;
             noteNameDisplay = noteName;
@@ -158,6 +158,7 @@
         function switchTab(tab) {
             activeTab = tab;
             document.getElementById('tabTime').classList.toggle('active', tab === 'time');
+            document.getElementById('tabEnv').classList.toggle('active', tab === 'env');
             document.getElementById('tabFreq').classList.toggle('active', tab === 'freq');
             
             updateHeader();
@@ -170,7 +171,9 @@
                 return;
             }
             if (activeTab === 'time') {
-                graphTitle.textContent = `Waveform: ${noteNameDisplay}`;
+                graphTitle.textContent = `Raw Waveform: ${noteNameDisplay}`;
+            } else if (activeTab === 'env') {
+                graphTitle.textContent = `Volume Envelope: ${noteNameDisplay}`;
             } else {
                 graphTitle.textContent = `Harmonic Profile: ${noteNameDisplay}`;
             }
@@ -194,47 +197,43 @@
             
             ctx.clearRect(0, 0, w, h);
 
-            if (waveData.length === 0) {
-                ctx.strokeStyle = '#333333';
-                ctx.lineWidth = 2;
-                ctx.beginPath();
-                ctx.moveTo(padding.left, h / 2);
-                ctx.lineTo(w - padding.right, h / 2);
-                ctx.stroke();
-                legendContainer.innerHTML = '';
-                return;
-            }
+            if (waveData.length === 0) return;
 
             const chartWidth = w - padding.left - padding.right;
             const chartHeight = h - padding.top - padding.bottom;
 
-            if (activeTab === 'time') {
-                // --- TIME DOMAIN: WAVEFORM RENDERING ---
+            if (activeTab === 'time' || activeTab === 'env') {
+                const isEnv = activeTab === 'env';
+                const activeData = isEnv ? envelopeData : waveData;
+                
+                if (activeData.length === 0) return;
+
+                const lineColor = isEnv ? '#4dffa6' : '#4db8ff';
+                const gradColor = isEnv ? 'rgba(77, 255, 166, 0.2)' : 'rgba(77, 184, 255, 0.2)';
+
                 legendContainer.innerHTML = `
-                    <div class="legend-item"><div class="legend-color" style="background: #4db8ff;"></div>Raw Waveform (Air Pressure)</div>
+                    <div class="legend-item"><div class="legend-color" style="background: ${lineColor};"></div>${isEnv ? 'Smoothed Volume Envelope' : 'Raw Waveform'}</div>
+                    <div class="legend-item" style="border-left: 1px dashed #ff4d4d; padding-left: 10px;">Detected Note Attack</div>
                 `;
 
-                const dataMin = Math.min(...waveData);
-                const dataMax = Math.max(...waveData);
+                const dataMin = Math.min(...activeData);
+                const dataMax = Math.max(...activeData);
                 const paddingValue = Math.max(10, (dataMax - dataMin) * 0.1);
-                const yMin = dataMin - paddingValue;
+                const yMin = isEnv ? 0 : dataMin - paddingValue; 
                 const yMax = dataMax + paddingValue;
                 const yRange = yMax - yMin || 1;
 
-                // Axes & Grid
-                drawGrid(w, h, chartWidth, chartHeight, yMin, yMax, yRange, 'Time (Array Index)', 'Amplitude');
+                drawGrid(w, h, chartWidth, chartHeight, yMin, yMax, yRange, 'Time (Array Index)', isEnv ? 'Magnitude' : 'Amplitude');
 
-                // Map Waveform Points
-                points = waveData.map((val, idx) => {
-                    const x = padding.left + (idx / (waveData.length - 1)) * chartWidth;
+                points = activeData.map((val, idx) => {
+                    const x = padding.left + (idx / (activeData.length - 1)) * chartWidth;
                     const y = padding.top + (1 - (val - yMin) / yRange) * chartHeight;
-                    return { x, y, val, label: `Sample: ${idx + 1}`, displayVal: val };
+                    return { x, y, val, label: `Sample: ${idx + 1}`, displayVal: Math.round(val) };
                 });
 
-                // Gradient Fill Under Wave
                 const gradient = ctx.createLinearGradient(0, padding.top, 0, padding.top + chartHeight);
-                gradient.addColorStop(0, 'rgba(77, 184, 255, 0.2)');
-                gradient.addColorStop(1, 'rgba(77, 184, 255, 0.0)');
+                gradient.addColorStop(0, gradColor);
+                gradient.addColorStop(1, 'rgba(0, 0, 0, 0.0)');
                 ctx.fillStyle = gradient;
                 ctx.beginPath();
                 ctx.moveTo(points[0].x, padding.top + chartHeight);
@@ -243,8 +242,7 @@
                 ctx.closePath();
                 ctx.fill();
 
-                // Draw Waveform Line
-                ctx.strokeStyle = '#4db8ff';
+                ctx.strokeStyle = lineColor;
                 ctx.lineWidth = 2;
                 ctx.beginPath();
                 ctx.moveTo(points[0].x, points[0].y);
@@ -253,29 +251,37 @@
                 }
                 ctx.stroke();
 
+                // DRAW RED NOTE ATTACK MARKERS
+                if (attackIndices && attackIndices.length > 0) {
+                    ctx.strokeStyle = 'rgba(255, 77, 77, 0.8)';
+                    ctx.lineWidth = 1.5;
+                    ctx.setLineDash([5, 5]);
+                    
+                    attackIndices.forEach(idx => {
+                        if (idx >= 0 && idx < activeData.length) {
+                            const x = padding.left + (idx / (activeData.length - 1)) * chartWidth;
+                            ctx.beginPath();
+                            ctx.moveTo(x, padding.top);
+                            ctx.lineTo(x, padding.top + chartHeight);
+                            ctx.stroke();
+                        }
+                    });
+                    ctx.setLineDash([]);
+                }
+
             } else {
-                // --- FREQUENCY DOMAIN: FFT SPECTRUM & HARMONIC OVERLAY ---
+                // --- FREQUENCY DOMAIN ---
                 legendContainer.innerHTML = `
                     <div class="legend-item"><div class="legend-color" style="background: #ffb84d;"></div>Frequency Peaks</div>
                     <div class="legend-item" style="border-left: 1px dashed #ff4d4d; padding-left: 10px;">Harmonic Target (f, 2f, 3f, 4f)</div>
                 `;
 
-                if (fftFreqs.length === 0) {
-                    ctx.fillStyle = '#888888';
-                    ctx.font = '14px sans-serif';
-                    ctx.textAlign = 'center';
-                    ctx.fillText('No Frequency Data Available. Load a real audio file.', w/2, h/2);
-                    return;
-                }
-
                 const yMin = 0;
                 const yMax = Math.max(...fftAmps) * 1.1 || 100;
                 const yRange = yMax - yMin;
 
-                // Draw Grid
                 drawGrid(w, h, chartWidth, chartHeight, yMin, yMax, yRange, 'Frequency (Hz)', 'Magnitude (Volume)');
 
-                // Map FFT points
                 points = fftAmps.map((val, idx) => {
                     const freq = fftFreqs[idx];
                     const x = padding.left + (idx / (fftFreqs.length - 1)) * chartWidth;
@@ -283,7 +289,6 @@
                     return { x, y, val, label: `Freq: ${Math.round(freq)} Hz`, displayVal: Math.round(val) };
                 });
 
-                // Fill FFT Graph
                 const gradient = ctx.createLinearGradient(0, padding.top, 0, padding.top + chartHeight);
                 gradient.addColorStop(0, 'rgba(255, 184, 77, 0.25)');
                 gradient.addColorStop(1, 'rgba(255, 184, 77, 0.0)');
@@ -295,7 +300,6 @@
                 ctx.closePath();
                 ctx.fill();
 
-                // Draw FFT Spectrum Line
                 ctx.strokeStyle = '#ffb84d';
                 ctx.lineWidth = 2;
                 ctx.beginPath();
@@ -305,34 +309,23 @@
                 }
                 ctx.stroke();
 
-                // --- SMART PEAK & HARMONIC CORRELATION ---
-                // Find Fundamental Frequency Peak (f)
                 let maxAmpIdx = 0;
-                // Skip DC offset noise near index 0
                 for (let i = 3; i < fftAmps.length; i++) {
-                    if (fftAmps[i] > fftAmps[maxAmpIdx]) {
-                        maxAmpIdx = i;
-                    }
+                    if (fftAmps[i] > fftAmps[maxAmpIdx]) maxAmpIdx = i;
                 }
                 const fundamentalF = fftFreqs[maxAmpIdx];
 
-                if (fundamentalF > 30) { // Only draw if we have a real detected pitch
+                if (fundamentalF > 30) { 
                     const maxFreq = fftFreqs[fftFreqs.length - 1];
                     const harmonics = [
-                        { multiplier: 1, label: 'f (Fund)' },
-                        { multiplier: 2, label: '2f' },
-                        { multiplier: 3, label: '3f' },
-                        { multiplier: 4, label: '4f' }
+                        { multiplier: 1, label: 'f' }, { multiplier: 2, label: '2f' },
+                        { multiplier: 3, label: '3f' }, { multiplier: 4, label: '4f' }
                     ];
 
                     harmonics.forEach(harmonic => {
                         const targetHz = fundamentalF * harmonic.multiplier;
                         if (targetHz <= maxFreq) {
-                            // Map frequency target back to horizontal pixel coordinate
-                            const ratio = targetHz / maxFreq;
-                            const hX = padding.left + ratio * chartWidth;
-
-                            // Draw Vertical Harmonic Guideline
+                            const hX = padding.left + (targetHz / maxFreq) * chartWidth;
                             ctx.strokeStyle = 'rgba(255, 77, 77, 0.65)';
                             ctx.lineWidth = 1.5;
                             ctx.setLineDash([4, 4]);
@@ -340,20 +333,17 @@
                             ctx.moveTo(hX, padding.top);
                             ctx.lineTo(hX, padding.top + chartHeight);
                             ctx.stroke();
-                            ctx.setLineDash([]); // Reset dashed state
+                            ctx.setLineDash([]);
 
-                            // Label the Guideline
                             ctx.fillStyle = '#ff4d4d';
                             ctx.font = 'bold 9px sans-serif';
                             ctx.textAlign = 'center';
                             ctx.fillText(harmonic.label, hX, padding.top - 10);
-                            ctx.fillText(`${Math.round(targetHz)}Hz`, hX, padding.top - 2);
                         }
                     });
                 }
             }
 
-            // Draw Shared Hover Tracking Marker
             if (activeIndex !== -1 && activeIndex < points.length) {
                 const p = points[activeIndex];
                 ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
@@ -363,7 +353,7 @@
                 ctx.lineTo(p.x, padding.top + chartHeight);
                 ctx.stroke();
 
-                ctx.fillStyle = activeTab === 'time' ? '#4db8ff' : '#ffb84d';
+                ctx.fillStyle = activeTab === 'time' ? '#4db8ff' : (activeTab === 'env' ? '#4dffa6' : '#ffb84d');
                 ctx.strokeStyle = '#1e1e1e';
                 ctx.lineWidth = 2;
                 ctx.beginPath();
@@ -373,7 +363,6 @@
             }
         }
 
-        // Shared background grid rendering method
         function drawGrid(w, h, chartWidth, chartHeight, yMin, yMax, yRange, xLabel, yLabel) {
             ctx.strokeStyle = '#2d2d2d';
             ctx.lineWidth = 1;
@@ -382,10 +371,8 @@
             ctx.textAlign = 'right';
             ctx.textBaseline = 'middle';
 
-            // Horizontal Lines
-            const gridLinesCount = 5;
-            for (let i = 0; i <= gridLinesCount; i++) {
-                const ratio = i / gridLinesCount;
+            for (let i = 0; i <= 5; i++) {
+                const ratio = i / 5;
                 const yVal = yMax - ratio * yRange;
                 const yPos = padding.top + ratio * chartHeight;
 
@@ -393,17 +380,14 @@
                 ctx.moveTo(padding.left, yPos);
                 ctx.lineTo(w - padding.right, yPos);
                 ctx.stroke();
-
                 ctx.fillText(Math.round(yVal), padding.left - 10, yPos);
             }
 
-            // X-Axis Axis Label
             ctx.fillStyle = '#aaaaaa';
             ctx.textAlign = 'center';
             ctx.font = '11px sans-serif';
             ctx.fillText(xLabel, padding.left + chartWidth / 2, h - padding.bottom + 25);
             
-            // Y-Axis Label Rotated
             ctx.save();
             ctx.translate(15, padding.top + chartHeight / 2);
             ctx.rotate(-Math.PI / 2);
@@ -411,27 +395,24 @@
             ctx.restore();
         }
 
-        // Interactive Tooltip tracking
         canvas.addEventListener('mousemove', (e) => {
-            if (waveData.length === 0) return;
+            const activeData = activeTab === 'freq' ? fftFreqs : (activeTab === 'env' ? envelopeData : waveData);
+            if (activeData.length === 0) return;
+            
             const rect = canvas.getBoundingClientRect();
-            const mouseX = e.clientX - rect.left;
-            const relativeX = mouseX - padding.left;
+            const relativeX = e.clientX - rect.left - padding.left;
             const chartWidth = rect.width - padding.left - padding.right;
 
             if (relativeX >= 0 && relativeX <= chartWidth) {
-                const totalPoints = activeTab === 'time' ? waveData.length : fftFreqs.length;
                 const percent = relativeX / chartWidth;
-                activeIndex = Math.round(percent * (totalPoints - 1));
+                activeIndex = Math.round(percent * (activeData.length - 1));
 
-                if (activeIndex >= 0 && activeIndex < totalPoints) {
+                if (activeIndex >= 0 && activeIndex < activeData.length) {
                     const p = points[activeIndex];
-                    
                     tooltip.style.display = 'block';
                     tooltip.innerHTML = `<strong>${p.label}</strong><br><strong>Value:</strong> ${p.displayVal}`;
                     tooltip.style.left = `${p.x + 10}px`;
                     tooltip.style.top = `${p.y - 45}px`;
-
                     drawChart();
                     return;
                 }

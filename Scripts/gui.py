@@ -99,7 +99,7 @@ class MainWindow(QMainWindow):
         frequencies_t = np.fft.rfftfreq(len(audio_data), d=1/sample_rate)
         amplitudes_t = np.abs(np.fft.rfft(audio_data))
 
-        mask = (frequencies_t >= 50) & (frequencies_t <= 2000)
+        mask = (frequencies_t >= 120) & (frequencies_t <= 10000)
         vis_freqs_t = frequencies_t[mask]
         vis_amps_t = amplitudes_t[mask]
 
@@ -140,9 +140,12 @@ class MainWindow(QMainWindow):
         window = np.ones(window_size) / window_size
         envelope = np.convolve(rectified_audio, window, mode='same')
 
-        dynamic_prominence = np.max(envelope) * 0.05
+        dynamic_prominence_array = envelope * 0.03
 
-        peak_volume, _ = find_peaks(envelope, height=volume_threshold, distance=5000, prominence=dynamic_prominence)
+        # minimum_prominence = np.max(envelope) * 0.02
+        dynamic_prominence_array = np.clip(dynamic_prominence_array, 200, None)
+
+        peak_volume, _ = find_peaks(envelope, height=volume_threshold, distance=5604, prominence=dynamic_prominence_array)
         peak_volume_list = peak_volume.tolist()
 
         
@@ -196,6 +199,10 @@ class MainWindow(QMainWindow):
             # sampled_data = audio_data[150000:151000:1].tolist() #hG
             pitch = self.analyze_segment(sampled_data, freqs_list, amps_list, sample_rate, alto_frequencies, alto_pitches, audio_data, avg, positive_values, max_val)
             pitches_detected.append(pitch)
+
+        for i in range(1, len(pitches_detected) - 1):
+            if pitches_detected[i] != pitches_detected[i-1] and pitches_detected[i] != pitches_detected[i+1]:
+                pitches_detected[i] = pitches_detected[i+1]
 
         # print("Detected pitches:", pitches_detected)
         # print("Length of detected pitches:", len(pitches_detected))
@@ -251,28 +258,27 @@ class MainWindow(QMainWindow):
         # print(f"Corresponding pitch: {alto_pitches[alto_frequencies[idx]]}")
         return(alto_pitches[alto_frequencies[idx]])
 
-    def structure_data(self, data, starting_index, segmentation):
+    def structure_data(self, data, samples_per_segment, segmentation):
 
         active_pitch = None
         pitches = []
         lengths = []
 
+        peak_segments = [int(p / samples_per_segment) for p in segmentation]
+        peak_segments.append(float('inf'))
         j = 0
-        segmentation = segmentation + [float('inf')]
 
-        # Iterate through the data and group consecutive identical pitches
         for i, pitch in enumerate(data):
-
-            new_note_crossed = False
-            while starting_index * i >= segmentation[j]:
-                new_note_crossed = True
+            peak_crossed = False
+            while i >= peak_segments[j]:
+                peak_crossed = True
                 j += 1
 
             if pitch == 0:
-                new_note_crossed = False
+                peak_crossed = False
 
             if active_pitch == pitch:
-                if new_note_crossed and len(lengths) > 0 and lengths[-1] >= 2:
+                if peak_crossed and active_pitch != 0 and lengths[-1] >= 2:
                     pitches.append(active_pitch)
                     lengths.append(1)
                 else:
@@ -283,26 +289,14 @@ class MainWindow(QMainWindow):
                 pitches.append(active_pitch)
                 lengths.append(1)
 
-        # print("J:",j)
-
-        # Remove leading and trailing silences from the pitches and lengths lists
         if len(pitches) > 0 and pitches[0] == 0: 
             pitches.pop(0)
             lengths.pop(0)
-        if len(pitches) > 0 and pitches[len(pitches) - 1] == 0:
+        if len(pitches) > 0 and pitches[-1] == 0:
             pitches.pop()
             lengths.pop()
 
-        filtered_pitches = []
-        filtered_lengths = []
-        for pitch, length in zip(pitches, lengths):
-            if length == 1 and len(filtered_lengths) > 0:
-                filtered_lengths[-1] += 1
-            else:
-                filtered_pitches.append(pitch)
-                filtered_lengths.append(length)
-
-        return filtered_pitches, filtered_lengths
+        return pitches, lengths
 
 
 if __name__ == "__main__":

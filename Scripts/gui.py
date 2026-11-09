@@ -110,8 +110,6 @@ class MainWindow(QMainWindow):
         freqs_list_t = vis_freqs_t[::step_t].tolist()
         amps_list_t = vis_amps_t[::step_t].tolist()
 
-        samples_per_segment = int(4096 * sample_rate / 48000) # Tweak this number if analasys is too inaccurate
-
         volume_threshold = 500
 
         pitches_detected = []
@@ -169,7 +167,10 @@ class MainWindow(QMainWindow):
         print("Peak volume:", peak_volume_list)
         print("Peak volume count:", len(peak_volume_list))
 
-        for i in range(0, len(audio_data), samples_per_segment):
+        samples_per_segment = int(2048 * sample_rate / 48000) # Tweak this number if analasys is too inaccurate
+        sliding_window_size = 256 # Adjust if too slow or length too innacurate
+
+        for i in range(0, len(audio_data) - samples_per_segment, sliding_window_size):
             audio_sliced = audio_data[i:i+samples_per_segment]
             if len(audio_sliced) < 512:
                 continue
@@ -206,7 +207,7 @@ class MainWindow(QMainWindow):
 
         # print("Detected pitches:", pitches_detected)
         # print("Length of detected pitches:", len(pitches_detected))
-        structured_pitches, structured_lengths = self.structure_data(pitches_detected, samples_per_segment, peak_volume_list)
+        structured_pitches, structured_lengths = self.structure_data(pitches_detected, sliding_window_size, peak_volume_list)
         # print("Structured pitches:", structured_pitches)
         # print("Structured lengths:", structured_lengths)
 
@@ -268,6 +269,8 @@ class MainWindow(QMainWindow):
         peak_segments.append(float('inf'))
         j = 0
 
+        min_split_segment = int(7000 / samples_per_segment)
+
         for i, pitch in enumerate(data):
             peak_crossed = False
             while i >= peak_segments[j]:
@@ -278,7 +281,7 @@ class MainWindow(QMainWindow):
                 peak_crossed = False
 
             if active_pitch == pitch:
-                if peak_crossed and active_pitch != 0 and lengths[-1] >= 2:
+                if peak_crossed and active_pitch != 0 and lengths[-1] >= min_split_segment:
                     pitches.append(active_pitch)
                     lengths.append(1)
                 else:
@@ -296,7 +299,23 @@ class MainWindow(QMainWindow):
             pitches.pop()
             lengths.pop()
 
-        return pitches, lengths
+        min_length = 10  # Adjust to lower threshold for note length, may introduce unwanted notes
+        
+        filtered_pitches = []
+        filtered_lengths = []
+
+        for p, l in zip(pitches, lengths):
+            if l < min_length:
+                if len(filtered_lengths) > 0:
+                    filtered_lengths[-1] += l
+                else:
+                    filtered_pitches.append(p)
+                    filtered_lengths.append(l)
+            else:
+                filtered_pitches.append(p)
+                filtered_lengths.append(l)
+
+        return filtered_pitches, filtered_lengths
 
 
 if __name__ == "__main__":

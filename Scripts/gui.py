@@ -4,6 +4,7 @@ import json
 import sys
 import os
 import random
+import time
 from PySide6.QtWidgets import QWidget, QApplication, QVBoxLayout, QLabel, QPushButton, QMainWindow, QHBoxLayout
 from PySide6.QtWebEngineWidgets import QWebEngineView 
 from PySide6.QtCore import QUrl
@@ -40,6 +41,8 @@ class MainWindow(QMainWindow):
         button.clicked.connect(self.analyze_audio)
 
     def analyze_audio(self):
+        start_time = time.perf_counter()
+
         current_dir = os.path.dirname(os.path.abspath(__file__))
         project_root = os.path.dirname(current_dir)
         audio_file = os.path.join(project_root, "Recordings", "Alle meine Entchen 190bpm.wav") # Change this to the path of your audio file
@@ -164,8 +167,8 @@ class MainWindow(QMainWindow):
 
 
 
-        print("Peak volume:", peak_volume_list)
-        print("Peak volume count:", len(peak_volume_list))
+        # print("Peak volume:", peak_volume_list)
+        # print("Peak volume count:", len(peak_volume_list))
 
         samples_per_segment = int(2048 * sample_rate / 48000) # Tweak this number if analasys is too inaccurate
         sliding_window_size = 256 # Adjust if too slow or length too innacurate
@@ -213,6 +216,14 @@ class MainWindow(QMainWindow):
 
         lengths_and_pitches = [f"{pitch}: {length}" for pitch, length in zip(structured_pitches, structured_lengths)]
         print(lengths_and_pitches)
+        print(25 * "-")
+
+        notes = self.data_to_notes(structured_pitches, structured_lengths, sample_rate, sliding_window_size)
+        #print(notes)
+
+        end_time = time.perf_counter()
+        elapsed_time = end_time - start_time
+        print(f"Completed in {elapsed_time:.3f} seconds")
 
         # print(len(structured_pitches))
 
@@ -316,6 +327,79 @@ class MainWindow(QMainWindow):
                 filtered_lengths.append(l)
 
         return filtered_pitches, filtered_lengths
+
+    def data_to_notes(self, pitches, lengths, sample_rate, sliding_window_size):
+
+        bpm = self.analyze_tempo(lengths, sample_rate)
+
+        note_lengths = {
+            "sixteenth": 1,
+            "eighth": 2,
+            "quarter": 4,
+            "half": 8,
+            "whole": 16
+        }
+
+        for name, duration in list(note_lengths.items()):
+            pointed_duration = duration * 1.5
+            note_lengths[f"dotted {name}"] = pointed_duration
+
+            # Double dotted notes, uncommon and may induce imprecision
+            # double_pointed_duration = duration * 1.75
+            # note_lengths[f"double dotted {name}"] = double_pointed_duration
+
+        note_lengths = dict(sorted(note_lengths.items(), key=lambda item: item[1]))
+
+        multiplier = (sample_rate * 60) / (bpm * 4 * sliding_window_size)  # Cos 1 is a sixteenth, also we skip a lot cos of the sliding window
+
+        for name, duration in list(note_lengths.items()):
+            note_lengths[name] = duration * multiplier
+
+        n_lengths = []
+        n_pitches = []
+        n_accents = []
+        n_legato = [] # Backwards: If Element is True, its legato with the note before
+
+        tolerance = 5
+        sorted_lengths = list(note_lengths.values())
+        added_length = 0
+
+        print(note_lengths)
+        print(25 * "-")
+
+
+        for pitch, length in zip(pitches, lengths):
+            accumulated_length = 0
+            total_length = length + added_length + tolerance
+
+            while accumulated_length < total_length:
+                index = np.searchsorted(sorted_lengths, total_length - accumulated_length, side='right')
+
+                n_lengths.append(list(note_lengths.keys())[index - 1])
+                n_pitches.append(pitch)
+                n_accents.append(None) #Placeholder for now, will prolly move this elsewhere
+                n_legato.append(accumulated_length != 0)
+
+                accumulated_length += list(note_lengths.values())[index - 1]
+
+            accumulated_length -= list(note_lengths.values())[index - 1]
+
+            n_lengths.pop()
+            n_pitches.pop()
+            n_accents.pop()
+            n_legato.pop()
+
+            added_length = length + added_length - accumulated_length
+            print(added_length)
+
+        print(list(zip(n_lengths, n_pitches, n_legato)))
+
+        return zip(n_lengths, n_pitches, n_accents, n_legato)
+
+    def analyze_tempo(self, lengths, sample_rate):
+        # Insert logic to determine tempo
+
+        return 190
 
 
 if __name__ == "__main__":

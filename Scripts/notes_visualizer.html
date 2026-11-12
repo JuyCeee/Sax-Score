@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sheet Music Visualizer</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: #121212;
+            color: #ffffff;
+            margin: 0;
+            padding: 20px;
+        }
+        h2 { 
+            color: #4db8ff; 
+            text-align: center; 
+            margin-bottom: 30px; 
+            font-size: 1.5rem;
+        }
+        .stave-container {
+            background-color: #1e1e1e;
+            padding: 40px 30px;
+            border-radius: 12px;
+            box-shadow: 0 8px 16px rgba(0,0,0,0.5);
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            row-gap: 50px;
+            justify-content: flex-start;
+            align-items: center;
+            max-width: 1100px;
+            margin: 0 auto;
+        }
+        .note-card {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            width: 75px;
+            height: 110px;
+            background: #2a2a2a;
+            border-radius: 10px;
+            position: relative;
+            border: 1px solid #3d3d3d;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+            transition: transform 0.2s, border-color 0.2s;
+        }
+        .note-card:hover {
+            transform: translateY(-5px);
+            border-color: #4db8ff;
+        }
+        .note-card.rest {
+            background: #151515;
+            border-color: #222;
+            box-shadow: inset 0 2px 4px rgba(0,0,0,0.5);
+        }
+        .symbol {
+            font-size: 42px;
+            color: #4db8ff;
+            line-height: 1;
+            margin-bottom: 5px;
+        }
+        .rest .symbol { 
+            color: #ffb84d; 
+            font-size: 34px; 
+        }
+        .pitch { 
+            font-weight: bold; 
+            font-size: 16px; 
+            color: #fff; 
+        }
+        .rest .pitch { 
+            color: #888; 
+            font-size: 12px; 
+        }
+        .length { 
+            font-size: 11px; 
+            color: #aaa; 
+            text-align: center; 
+            text-transform: capitalize; 
+            margin-top: 5px; 
+        }
+        .legato-tie {
+            position: absolute;
+            top: -15px;
+            left: -40px; 
+            width: 75px; 
+            height: 15px;
+            border-top: 3px solid #4dffa6;
+            border-radius: 50%;
+            pointer-events: none;
+            z-index: 10;
+        }
+    </style>
+</head>
+<body>
+
+    <h2 id="stave-title">Transcribed Notes</h2>
+    <div class="stave-container" id="stave">
+        <!-- Notes will be injected here via JavaScript -->
+    </div>
+
+    <script>
+        function getSymbol(length, isRest) {
+            let base = length.replace('dotted ', '');
+            let isDotted = length.includes('dotted');
+            
+            let symbol = '';
+            if (isRest) {
+                if (base === 'whole') symbol = '𝄻';
+                else if (base === 'half') symbol = '𝄼';
+                else if (base === 'quarter') symbol = '𝄽';
+                else if (base === 'eighth') symbol = '𝄾';
+                else if (base === 'sixteenth') symbol = '𝄿';
+                else symbol = '𝄽';
+            } else {
+                if (base === 'whole') symbol = '𝅝';
+                else if (base === 'half') symbol = '𝅗𝅥';
+                else if (base === 'quarter') symbol = '♩';
+                else if (base === 'eighth') symbol = '♪';
+                else if (base === 'sixteenth') symbol = '♬';
+                else symbol = '♩';
+            }
+            
+            if (isDotted) symbol += '.';
+            return symbol;
+        }
+
+        function renderNotes(notes) {
+            const container = document.getElementById('stave');
+            container.innerHTML = '';
+            
+            if (notes.length === 0) {
+                container.innerHTML = '<div style="color:#888; width:100%; text-align:center;">No notes detected yet...</div>';
+                return;
+            }
+
+            notes.forEach((note, index) => {
+                const isRest = note.pitch === 0 || note.pitch === "0";
+                const symbol = getSymbol(note.length, isRest);
+                
+                const card = document.createElement('div');
+                card.className = 'note-card' + (isRest ? ' rest' : '');
+                
+                let tieHtml = '';
+                // Add the legato tie, hanging off the left side to connect to the previous card
+                if (note.legato && index > 0) {
+                    tieHtml = `<div class="legato-tie"></div>`;
+                }
+
+                card.innerHTML = `
+                    ${tieHtml}
+                    <div class="symbol">${symbol}</div>
+                    <div class="pitch">${isRest ? 'REST' : note.pitch}</div>
+                    <div class="length">${note.length}</div>
+                `;
+                
+                container.appendChild(card);
+            });
+        }
+    </script>
+</body>
+</html>

@@ -13,6 +13,27 @@ from scipy.io import wavfile
 from scipy.signal import find_peaks
 import numpy as np
 
+class NotesWindow(QMainWindow):
+    def __init__(self, notes_json):
+        super().__init__()
+        self.setWindowTitle("Visual Sheet Music")
+        self.setGeometry(150, 150, 1100, 450)
+
+        self.browser = QWebEngineView()
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        html_file_path = os.path.join(current_dir, "notes_visualizer.html")
+        
+        self.browser.setUrl(QUrl.fromLocalFile(html_file_path))
+        self.setCentralWidget(self.browser)
+        self.notes_json = notes_json
+        
+        # Wait until HTML loads to send the notes data
+        self.browser.loadFinished.connect(self.on_load_finished)
+
+    def on_load_finished(self):
+        js_code = f"renderNotes({self.notes_json})"
+        self.browser.page().runJavaScript(js_code)
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -218,14 +239,27 @@ class MainWindow(QMainWindow):
         print(lengths_and_pitches)
         print(25 * "-")
 
-        notes = self.data_to_notes(structured_pitches, structured_lengths, sample_rate, sliding_window_size)
-        #print(notes)
+        # print(len(structured_pitches))
+
+        # Ensure we keep the second window alive
+        self.notes_window = None 
+        
+        notes_zip = self.data_to_notes(structured_pitches, structured_lengths, sample_rate, sliding_window_size)
+        
+        # Evaluate the zip object into a physical list
+        notes_list = list(notes_zip)
+        
+        # Package the data into a list of dictionaries for JavaScript
+        notes_data = [{"length": l, "pitch": p, "legato": leg} for l, p, _, leg in notes_list]
+        notes_json = json.dumps(notes_data)
+
+        # Instantiate and show the second window!
+        self.notes_window = NotesWindow(notes_json)
+        self.notes_window.show()
 
         end_time = time.perf_counter()
         elapsed_time = end_time - start_time
         print(f"Completed in {elapsed_time:.3f} seconds")
-
-        # print(len(structured_pitches))
 
 
     # For optimization: look at input/output, what could be moved where, whats only needed for prints, etc.
@@ -372,7 +406,7 @@ class MainWindow(QMainWindow):
             accumulated_length = 0
             total_length = length + added_length + tolerance
 
-            while accumulated_length < total_length:
+            while accumulated_length <= total_length:
                 index = np.searchsorted(sorted_lengths, total_length - accumulated_length, side='right')
 
                 n_lengths.append(list(note_lengths.keys())[index - 1])

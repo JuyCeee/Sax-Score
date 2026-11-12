@@ -4,159 +4,110 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Sheet Music Visualizer</title>
+    <!-- Load ABCjs from CDN for professional sheet music rendering -->
+    <script src="https://cdn.jsdelivr.net/npm/abcjs@6.2.2/dist/abcjs-basic-min.js"></script>
     <style>
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-            background-color: #121212;
-            color: #ffffff;
+            background-color: #e8ecef; 
             margin: 0;
             padding: 20px;
         }
         h2 { 
-            color: #4db8ff; 
+            color: #2c3e50; 
             text-align: center; 
-            margin-bottom: 30px; 
-            font-size: 1.5rem;
+            margin-bottom: 20px; 
         }
         .stave-container {
-            background-color: #1e1e1e;
-            padding: 40px 30px;
-            border-radius: 12px;
-            box-shadow: 0 8px 16px rgba(0,0,0,0.5);
-            display: flex;
-            flex-wrap: wrap;
-            gap: 12px;
-            row-gap: 50px;
-            justify-content: flex-start;
-            align-items: center;
-            max-width: 1100px;
+            background-color: #ffffff;
+            padding: 20px 40px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            max-width: 1200px;
             margin: 0 auto;
+            overflow-x: auto;
         }
-        .note-card {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            width: 75px;
-            height: 110px;
-            background: #2a2a2a;
-            border-radius: 10px;
-            position: relative;
-            border: 1px solid #3d3d3d;
-            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
-            transition: transform 0.2s, border-color 0.2s;
-        }
-        .note-card:hover {
-            transform: translateY(-5px);
-            border-color: #4db8ff;
-        }
-        .note-card.rest {
-            background: #151515;
-            border-color: #222;
-            box-shadow: inset 0 2px 4px rgba(0,0,0,0.5);
-        }
-        .symbol {
-            font-size: 42px;
-            color: #4db8ff;
-            line-height: 1;
-            margin-bottom: 5px;
-        }
-        .rest .symbol { 
-            color: #ffb84d; 
-            font-size: 34px; 
-        }
-        .pitch { 
-            font-weight: bold; 
-            font-size: 16px; 
-            color: #fff; 
-        }
-        .rest .pitch { 
-            color: #888; 
-            font-size: 12px; 
-        }
-        .length { 
-            font-size: 11px; 
-            color: #aaa; 
-            text-align: center; 
-            text-transform: capitalize; 
-            margin-top: 5px; 
-        }
-        .legato-tie {
-            position: absolute;
-            top: -15px;
-            left: -40px; 
-            width: 75px; 
-            height: 15px;
-            border-top: 3px solid #4dffa6;
-            border-radius: 50%;
-            pointer-events: none;
-            z-index: 10;
+        svg {
+            display: block;
+            margin: 0 auto;
         }
     </style>
 </head>
 <body>
 
-    <h2 id="stave-title">Transcribed Notes</h2>
-    <div class="stave-container" id="stave">
-        <!-- Notes will be injected here via JavaScript -->
+    <h2>Transcribed Sheet Music</h2>
+    <div class="stave-container" id="paper">
+        <div style="text-align: center; color: #888; padding: 40px;">Waiting for audio analysis...</div>
     </div>
 
     <script>
-        function getSymbol(length, isRest) {
-            let base = length.replace('dotted ', '');
-            let isDotted = length.includes('dotted');
+        function pitchToABC(pitch) {
+            if (pitch === 0 || pitch === "0") return "z"; 
             
-            let symbol = '';
-            if (isRest) {
-                if (base === 'whole') symbol = '𝄻';
-                else if (base === 'half') symbol = '𝄼';
-                else if (base === 'quarter') symbol = '𝄽';
-                else if (base === 'eighth') symbol = '𝄾';
-                else if (base === 'sixteenth') symbol = '𝄿';
-                else symbol = '𝄽';
-            } else {
-                if (base === 'whole') symbol = '𝅝';
-                else if (base === 'half') symbol = '𝅗𝅥';
-                else if (base === 'quarter') symbol = '♩';
-                else if (base === 'eighth') symbol = '♪';
-                else if (base === 'sixteenth') symbol = '♬';
-                else symbol = '♩';
-            }
-            
-            if (isDotted) symbol += '.';
-            return symbol;
+            let note = pitch.charAt(0);
+            let isSharp = pitch.includes('#');
+            let octave = parseInt(pitch.slice(-1));
+
+            if (note === 'H') note = 'B'; 
+
+            let abcNote = "";
+            if (octave === 3) abcNote = note + ",";
+            else if (octave === 4) abcNote = note;
+            else if (octave === 5) abcNote = note.toLowerCase();
+            else if (octave === 6) abcNote = note.toLowerCase() + "'";
+
+            if (isSharp) abcNote = "^" + abcNote;
+            return abcNote;
         }
 
-        function renderNotes(notes) {
-            const container = document.getElementById('stave');
-            container.innerHTML = '';
+        function lengthToABC(lenStr) {
+            const map = {
+                "sixteenth": 2, "dotted sixteenth": 3, "eighth": 4, "dotted eighth": 6,
+                "quarter": 8, "dotted quarter": 12, "half": 16, "dotted half": 24,
+                "whole": 32, "dotted whole": 48
+            };
+            return map[lenStr] || 8; 
+        }
+
+        // Added an 'attempt' counter to break the infinite loop
+        window.renderNotes = function(notes, attempt = 0) {
             
+            // 1. If Python sends an empty array, prove it on screen
             if (notes.length === 0) {
-                container.innerHTML = '<div style="color:#888; width:100%; text-align:center;">No notes detected yet...</div>';
+                document.getElementById('paper').innerHTML = `<div style="text-align: center; color: #ffb84d; padding: 40px;">Analysis finished, but 0 notes were loud/long enough to pass the threshold.</div>`;
                 return;
             }
 
-            notes.forEach((note, index) => {
-                const isRest = note.pitch === 0 || note.pitch === "0";
-                const symbol = getSymbol(note.length, isRest);
-                
-                const card = document.createElement('div');
-                card.className = 'note-card' + (isRest ? ' rest' : '');
-                
-                let tieHtml = '';
-                // Add the legato tie, hanging off the left side to connect to the previous card
-                if (note.legato && index > 0) {
-                    tieHtml = `<div class="legato-tie"></div>`;
+            // 2. If PySide6 blocks the CDN from loading, prove it on screen
+            if (typeof window.ABCJS === 'undefined') {
+                if (attempt > 10) {
+                    document.getElementById('paper').innerHTML = `<div style="text-align: center; color: #ff4d4d; padding: 40px;"><b>Security Error:</b> PySide6 blocked the internet connection to the ABCjs library.<br>You must enable LocalContentCanAccessRemoteUrls in Python.</div>`;
+                    return;
                 }
+                setTimeout(() => window.renderNotes(notes, attempt + 1), 100);
+                return;
+            }
 
-                card.innerHTML = `
-                    ${tieHtml}
-                    <div class="symbol">${symbol}</div>
-                    <div class="pitch">${isRest ? 'REST' : note.pitch}</div>
-                    <div class="length">${note.length}</div>
-                `;
+            let abcString = "X:1\nT:Saxophone Transcription\nM:none\nL:1/32\nK:C\n";
+            let notesArr = [];
+            
+            notes.forEach((note, index) => {
+                let p = pitchToABC(note.pitch);
+                let l = lengthToABC(note.length);
+                let abcToken = p + l;
                 
-                container.appendChild(card);
+                if (note.legato && index > 0 && notes[index-1].pitch !== 0) {
+                    notesArr[notesArr.length - 1] += "-";
+                }
+                notesArr.push(abcToken);
+            });
+
+            abcString += notesArr.join(" ");
+
+            window.ABCJS.renderAbc("paper", abcString, {
+                responsive: "resize",
+                add_classes: true,
+                format: { titlefont: "Helvetica 24", subtitlefont: "Helvetica 14", musicspace: 15 }
             });
         }
     </script>

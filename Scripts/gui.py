@@ -12,6 +12,7 @@ import sounddevice as sd
 from scipy.io import wavfile
 from scipy.signal import find_peaks
 import numpy as np
+from PySide6.QtWebEngineCore import QWebEngineSettings
 
 class NotesWindow(QMainWindow):
     def __init__(self, notes_json):
@@ -20,15 +21,18 @@ class NotesWindow(QMainWindow):
         self.setGeometry(150, 150, 1100, 450)
 
         self.browser = QWebEngineView()
+        
+        self.browser.settings().setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessRemoteUrls, True)
+        
         current_dir = os.path.dirname(os.path.abspath(__file__))
         html_file_path = os.path.join(current_dir, "notes_visualizer.html")
         
-        self.browser.setUrl(QUrl.fromLocalFile(html_file_path))
-        self.setCentralWidget(self.browser)
         self.notes_json = notes_json
         
-        # Wait until HTML loads to send the notes data
         self.browser.loadFinished.connect(self.on_load_finished)
+        self.browser.setUrl(QUrl.fromLocalFile(html_file_path))
+        
+        self.setCentralWidget(self.browser)
 
     def on_load_finished(self):
         js_code = f"renderNotes({self.notes_json})"

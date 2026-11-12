@@ -57,6 +57,7 @@
             else if (octave === 6) abcNote = note.toLowerCase() + "'";
 
             if (isSharp) abcNote = "^" + abcNote;
+            
             return abcNote;
         }
 
@@ -69,27 +70,32 @@
             return map[lenStr] || 8; 
         }
 
-        // Added an 'attempt' counter to break the infinite loop
-        window.renderNotes = function(notes, attempt = 0) {
+        window.renderNotes = function(data, attempt = 0) {
+            let notes = data.notes;
+            let timeSig = data.time_signature;
             
-            // 1. If Python sends an empty array, prove it on screen
-            if (notes.length === 0) {
+            if (!notes || notes.length === 0) {
                 document.getElementById('paper').innerHTML = `<div style="text-align: center; color: #ffb84d; padding: 40px;">Analysis finished, but 0 notes were loud/long enough to pass the threshold.</div>`;
                 return;
             }
 
-            // 2. If PySide6 blocks the CDN from loading, prove it on screen
             if (typeof window.ABCJS === 'undefined') {
-                if (attempt > 10) {
-                    document.getElementById('paper').innerHTML = `<div style="text-align: center; color: #ff4d4d; padding: 40px;"><b>Security Error:</b> PySide6 blocked the internet connection to the ABCjs library.<br>You must enable LocalContentCanAccessRemoteUrls in Python.</div>`;
+                if (attempt > 20) {
+                    document.getElementById('paper').innerHTML = `<div style="text-align: center; color: #ff4d4d; padding: 40px;"><b>Network Error:</b> Could not download the ABCjs library from the CDN.<br>Please check your internet connection.</div>`;
                     return;
                 }
-                setTimeout(() => window.renderNotes(notes, attempt + 1), 100);
+                setTimeout(() => window.renderNotes(data, attempt + 1), 100);
                 return;
             }
 
-            let abcString = "X:1\nT:Saxophone Transcription\nM:none\nL:1/32\nK:C\n";
+            let abcString = `X:1\nT:Saxophone Transcription\nM:${timeSig}\nL:1/32\nK:C\n`;
             let notesArr = [];
+            
+            // 1. Calculate how many 32nd notes fit in one measure of the current time signature
+            // Example for "4/4": 4 * (32 / 4) = 32 units per measure
+            let sigParts = timeSig.split('/');
+            let measureCapacity = parseInt(sigParts[0]) * (32 / parseInt(sigParts[1]));
+            let currentBarSum = 0;
             
             notes.forEach((note, index) => {
                 let p = pitchToABC(note.pitch);
@@ -99,7 +105,17 @@
                 if (note.legato && index > 0 && notes[index-1].pitch !== 0) {
                     notesArr[notesArr.length - 1] += "-";
                 }
+                
                 notesArr.push(abcToken);
+                
+                // 2. Add this note's length to our running measure tracker
+                currentBarSum += l;
+                
+                // 3. If we hit or exceed the measure capacity, explicitly draw a bar line
+                if (currentBarSum >= measureCapacity) {
+                    notesArr.push("|");
+                    currentBarSum -= measureCapacity; // Carry over any tiny excess to the next bar
+                }
             });
 
             abcString += notesArr.join(" ");

@@ -248,14 +248,19 @@ class MainWindow(QMainWindow):
         # Ensure we keep the second window alive
         self.notes_window = None 
         
-        notes_zip = self.data_to_notes(structured_pitches, structured_lengths, sample_rate, sliding_window_size)
-        
-        # Evaluate the zip object into a physical list
+        notes_zip, time_signature = self.data_to_notes(structured_pitches, structured_lengths, sample_rate, sliding_window_size)
         notes_list = list(notes_zip)
         
-        # Package the data into a list of dictionaries for JavaScript
         notes_data = [{"length": l, "pitch": p, "legato": leg} for l, p, _, leg in notes_list]
-        notes_json = json.dumps(notes_data)
+        
+        # THE FIX: Package both variables into a master dictionary 
+        # so JavaScript can successfully extract data.notes and data.time_signature
+        master_payload = {
+            "notes": notes_data,
+            "time_signature": time_signature
+        }
+        
+        notes_json = json.dumps(master_payload)
 
         # Instantiate and show the second window!
         self.notes_window = NotesWindow(notes_json)
@@ -371,20 +376,20 @@ class MainWindow(QMainWindow):
         bpm = self.analyze_tempo(lengths, sample_rate)
 
         note_lengths = {
-            "sixteenth": 1,
+            # "sixteenth": 1,
             "eighth": 2,
             "quarter": 4,
             "half": 8,
             "whole": 16
         }
 
-        for name, duration in list(note_lengths.items()):
-            pointed_duration = duration * 1.5
-            note_lengths[f"dotted {name}"] = pointed_duration
+        # for name, duration in list(note_lengths.items()):
+        #     pointed_duration = duration * 1.5
+        #     note_lengths[f"dotted {name}"] = pointed_duration
 
-            # Double dotted notes, uncommon and may induce imprecision
-            # double_pointed_duration = duration * 1.75
-            # note_lengths[f"double dotted {name}"] = double_pointed_duration
+        #     # Double dotted notes, uncommon and may induce imprecision
+        #     # double_pointed_duration = duration * 1.75
+        #     # note_lengths[f"double dotted {name}"] = double_pointed_duration
 
         note_lengths = dict(sorted(note_lengths.items(), key=lambda item: item[1]))
 
@@ -398,20 +403,30 @@ class MainWindow(QMainWindow):
         n_accents = []
         n_legato = [] # Backwards: If Element is True, its legato with the note before
 
-        tolerance = 5
+        tolerance = 10
         sorted_lengths = list(note_lengths.values())
         added_length = 0
 
         print(note_lengths)
         print(25 * "-")
 
+        time_signature, signature_length = self.analyze_time_signature(lengths)
+        signature_length *= note_lengths["whole"]
+
+        remaining_length = signature_length
+
 
         for pitch, length in zip(pitches, lengths):
             accumulated_length = 0
             total_length = length + added_length + tolerance
+            print("Total length:", total_length, "Pitch:", pitch, "Remaining Length:", remaining_length)
 
             while accumulated_length <= total_length:
-                index = np.searchsorted(sorted_lengths, total_length - accumulated_length, side='right')
+                max_chunk = min(total_length - accumulated_length, remaining_length)
+                if pitch == "C5":
+                    print(max_chunk)
+                
+                index = np.searchsorted(sorted_lengths, max_chunk, side='right')
 
                 n_lengths.append(list(note_lengths.keys())[index - 1])
                 n_pitches.append(pitch)
@@ -419,8 +434,19 @@ class MainWindow(QMainWindow):
                 n_legato.append(accumulated_length != 0)
 
                 accumulated_length += list(note_lengths.values())[index - 1]
+                remaining_length -= list(note_lengths.values())[index - 1]
+
+                remaining_temp = remaining_length
+                if remaining_length <= note_lengths["eighth"]:
+                    remaining_length = signature_length
 
             accumulated_length -= list(note_lengths.values())[index - 1]
+            remaining_length += list(note_lengths.values())[index - 1]
+
+            if remaining_length > signature_length:
+                remaining_length = remaining_temp
+                remaining_length += list(note_lengths.values())[index - 1]
+            
 
             n_lengths.pop()
             n_pitches.pop()
@@ -428,17 +454,25 @@ class MainWindow(QMainWindow):
             n_legato.pop()
 
             added_length = length + added_length - accumulated_length
-            print(added_length)
+            print("Accumulated Length:", accumulated_length)
+            print("Carried Length:", added_length)
 
         print(list(zip(n_lengths, n_pitches, n_legato)))
 
-        return zip(n_lengths, n_pitches, n_accents, n_legato)
+        return zip(n_lengths, n_pitches, n_accents, n_legato), time_signature
 
     def analyze_tempo(self, lengths, sample_rate):
         # Insert logic to determine tempo
 
-        return 190
+        return 189
 
+    def analyze_time_signature(self, lengths):
+        # Insert logic to determine time signature
+
+        top_num = 4
+        bottom_num = 4
+
+        return f"{top_num}/{bottom_num}", top_num / bottom_num
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)

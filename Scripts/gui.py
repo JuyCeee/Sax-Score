@@ -410,6 +410,7 @@ class MainWindow(QMainWindow):
         print(note_lengths)
         print(25 * "-")
 
+
         time_signature, signature_length = self.analyze_time_signature(lengths)
         signature_length *= note_lengths["whole"]
 
@@ -441,7 +442,11 @@ class MainWindow(QMainWindow):
                     remaining_length = signature_length
 
             accumulated_length -= list(note_lengths.values())[index - 1]
-            remaining_length += list(note_lengths.values())[index - 1]
+
+            if remaining_length != signature_length:
+                remaining_length += list(note_lengths.values())[index - 1]
+
+            print("Remaining Length:", remaining_length)
 
             if remaining_length > signature_length:
                 remaining_length = remaining_temp

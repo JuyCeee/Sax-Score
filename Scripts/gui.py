@@ -3,7 +3,6 @@
 import json
 import sys
 import os
-import random
 import time
 from PySide6.QtWidgets import QWidget, QApplication, QVBoxLayout, QLabel, QPushButton, QMainWindow, QHBoxLayout
 from PySide6.QtWebEngineWidgets import QWebEngineView 
@@ -445,8 +444,6 @@ class MainWindow(QMainWindow):
 
             if remaining_length != signature_length:
                 remaining_length += list(note_lengths.values())[index - 1]
-
-            print("Remaining Length:", remaining_length)
 
             if remaining_length > signature_length:
                 remaining_length = remaining_temp
